@@ -26,7 +26,6 @@ string       _bak_file_name     = "fft-backward.txt";
 unsigned int _fft_size      = 65536;
 unsigned int _ifft_size     = _fft_size/2+1;
 
-int          _data_count    = 1;
 bool         _time          = false;
 int          _count         = 100000;
 float        _mean          = 0.5;
@@ -61,7 +60,7 @@ void populate(real_data& data) {
 }
 
 
-float sqer(real_data& input, real_data& output) {
+double sqer(real_data& input, real_data& output) {
     
     // signal energy
     double se = 0.0;
@@ -109,7 +108,7 @@ void write_imag(imag_data& data, string filename) {
 
 void summarize(long duration, double sqer) {
     
-    double ave_dur = duration / _count;
+    double ave_dur = duration / (_count * 2.0); // forward and reverse FFT
     double ave_sqer = sqer / _count;
     
     cout.precision(8);
@@ -165,22 +164,27 @@ void time_fft() {
     size_t align = sizeof(Complex);
   
     real_data input(_fft_size, align);
+    real_data output(_fft_size, align);
     imag_data imag(_ifft_size, align);
   
     populate(input); 
 
     rcfft1d forward(_fft_size, input, imag);
+    crfft1d backward(_fft_size, imag, output);
 
+    double sqr = 0.0;
     high_resolution_clock::time_point start = high_resolution_clock::now();
 
     for (int i = 0; i < _count; ++i) {
         forward.fft(input, imag);
+        backward.fftNormalized(imag, output);
+        sqr += sqer(input, output);
     }
     
     high_resolution_clock::time_point stop = high_resolution_clock::now();
     nanoseconds duration = duration_cast<nanoseconds>(stop - start);
     
-    summarize(duration.count(), 0);    
+    summarize(duration.count(), sqr);    
 }
 
 int main(int ac, char* av[]) {
@@ -208,7 +212,6 @@ int main(int ac, char* av[]) {
         
         if (vm.count("time")) {
             _time = true;
-            _data_count = 1000;
         }
 
         if (vm.count("count")) {
