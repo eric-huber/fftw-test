@@ -61,6 +61,25 @@ void populate(real_data& data) {
         randomize(data);
 }
 
+
+float sqer(real_data& input, real_data& output) {
+    
+    // signal energy
+    double se = 0.0;
+    for (unsigned int i = 0; i < input.Size(); ++i) {
+        se += pow(input[i], 2);
+    }
+    
+    // quant error energy
+    double qe = 0.0;
+    for (unsigned int i = 0; i < input.Size(); ++i) {
+        qe += pow(input[i] - output[i], 2);
+    }    
+
+    return 10 * log10(se / qe);
+}
+
+
 void write_real(real_data& data, string filename) {
     ofstream ofs;
     ofs.open(filename);
@@ -89,28 +108,55 @@ void write_imag(imag_data& data, string filename) {
     ofs.close();
 }
 
+void summarize(long duration, double sqer) {
+    
+    double ave_dur = duration / _count;
+    double ave_sqer = sqer / _count;
+    
+    cout.precision(8);
+    cout << "Iterations: " << _count << endl;
+    cout << "Data size:  " << _fft_size << endl;
+    cout << "Data type:  " << (_use_periodic ? "Periodic" : "Random") << endl;
+    if (!_use_periodic) {
+        cout << "Mean:       " << _mean << endl;
+        cout << "Std Dev:    " << _std << endl;
+    }
+    cout << endl;
+    if (_time) {
+        cout << "Time:       " << duration << " ns" << endl;
+        cout << "Average:    " << ave_dur << " ns (" << (ave_dur / 1000.0) << " μs)" << endl;
+        cout << "SQER:       " << sqer << endl;
+        cout << "Ave SQER:   " << ave_sqer << endl;
+    } else {
+        cout << "SQER:       " << sqer << endl;
+    }
+}
+
 void test_fft() {
     fftw::maxthreads = get_max_threads();
 
     size_t align = sizeof(Complex);
   
-    array1<double> real(_fft_size, align);
+    array1<double> input(_fft_size, align);
+    array1<double> output(_fft_size, align);
     array1<Complex> imag(_ifft_size, align);
   
-    rcfft1d forward(_fft_size, real, imag);
-    crfft1d backward(_fft_size, imag, real);
+    rcfft1d forward(_fft_size, input, imag);
+    crfft1d backward(_fft_size, imag, output);
 
-    populate(real);  
+    populate(input); 
 
-    write_real(real, _data_file_name);
+    write_real(input, _data_file_name);
 
-    forward.fft(real, imag);
+    forward.fft(input, imag);
     
     write_imag(imag, _fft_file_name);
     
-    backward.fftNormalized(imag, real);
+    backward.fftNormalized(imag, output);
   
-    write_real(real, _bak_file_name);
+    write_real(output, _bak_file_name);
+    
+    summarize(0, sqer(input, output));
 }
 
 int main(int ac, char* av[]) {
