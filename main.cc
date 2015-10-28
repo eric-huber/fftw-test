@@ -31,7 +31,6 @@ bool         _time          = false;
 int          _count         = 100000;
 float        _mean          = 0.5;
 float        _std           = 0.2;
-float        _invert        = false;
 bool         _use_periodic  = false;
 
 void randomize(real_data& data) {
@@ -45,12 +44,12 @@ void randomize(real_data& data) {
 }
 
 void periodic(real_data& data) {
-        for (unsigned int i = 0; i < _fft_size; ++i) {
-            float t = i * .002;
-            float amp = sin(M_PI * t);
-            amp += sin(2 * M_PI * t);
-            amp += sin(3 * M_PI * t); 
-            data[i] = amp;
+    for (unsigned int i = 0; i < _fft_size; ++i) {
+        float t = i * .002;
+        float amp = sin(M_PI * t);
+        amp += sin(2 * M_PI * t);
+        amp += sin(3 * M_PI * t); 
+        data[i] = amp;
     }
 }
 
@@ -137,9 +136,9 @@ void test_fft() {
 
     size_t align = sizeof(Complex);
   
-    array1<double> input(_fft_size, align);
-    array1<double> output(_fft_size, align);
-    array1<Complex> imag(_ifft_size, align);
+    real_data input(_fft_size, align);
+    real_data output(_fft_size, align);
+    imag_data imag(_ifft_size, align);
   
     rcfft1d forward(_fft_size, input, imag);
     crfft1d backward(_fft_size, imag, output);
@@ -159,6 +158,31 @@ void test_fft() {
     summarize(0, sqer(input, output));
 }
 
+void time_fft() {
+    
+    fftw::maxthreads = get_max_threads();
+
+    size_t align = sizeof(Complex);
+  
+    real_data input(_fft_size, align);
+    imag_data imag(_ifft_size, align);
+  
+    populate(input); 
+
+    rcfft1d forward(_fft_size, input, imag);
+
+    high_resolution_clock::time_point start = high_resolution_clock::now();
+
+    for (int i = 0; i < _count; ++i) {
+        forward.fft(input, imag);
+    }
+    
+    high_resolution_clock::time_point stop = high_resolution_clock::now();
+    nanoseconds duration = duration_cast<nanoseconds>(stop - start);
+    
+    summarize(duration.count(), 0);    
+}
+
 int main(int ac, char* av[]) {
    try {
         
@@ -167,7 +191,6 @@ int main(int ac, char* av[]) {
         desc.add_options()
         ("help,h",      "produce help message")
         ("time,t",      "Time the FFT operation")
-        ("invert,i",    "Perform timings on both the  FFT and inverse FFT")
         ("count,c",     po::value<int>(), "set the number of timed loops to perform")
         ("size,s",      po::value<int>(), "Set the size of the data buffer [8192]")
         ("mean,m",      po::value<float>(), "Set the range of the random data [25.0]")
@@ -186,10 +209,6 @@ int main(int ac, char* av[]) {
         if (vm.count("time")) {
             _time = true;
             _data_count = 1000;
-        }
-        
-        if (vm.count("invert")) {
-            _invert = true;
         }
 
         if (vm.count("count")) {
@@ -220,7 +239,10 @@ int main(int ac, char* av[]) {
         return 1;
     }
 
-    test_fft();
+    if (_time)
+        time_fft();
+    else
+        test_fft();
     
     return 0;
 }
