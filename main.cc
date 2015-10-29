@@ -27,6 +27,7 @@ unsigned int _fft_size      = 65536;
 unsigned int _ifft_size     = _fft_size/2+1;
 
 bool         _time          = false;
+int          _batch         = 1000;
 int          _count         = 100000;
 float        _mean          = 0.5;
 float        _std           = 0.2;
@@ -107,12 +108,13 @@ void write_imag(imag_data& data, string filename) {
 }
 
 void summarize(long duration, double sqer) {
-    
-    double ave_dur = duration / (_count * 2.0); // forward and reverse FFT
-    double ave_sqer = sqer / _count;
-    
+  
+    int    count = _count * _batch;    
+    double ave_dur = duration / (count * 2.0); // forward and reverse FFT
+    double ave_sqer = sqer / count;
+  
     cout.precision(8);
-    cout << "Iterations: " << _count << endl;
+    cout << "Iterations: " << count << endl;
     cout << "Data size:  " << _fft_size << endl;
     cout << "Data type:  " << (_use_periodic ? "Periodic" : "Random") << endl;
     if (!_use_periodic) {
@@ -120,7 +122,7 @@ void summarize(long duration, double sqer) {
         cout << "Std Dev:    " << _std << endl;
     }
     cout << endl;
-    if (_time) {
+    if (_time) {   
         cout << "Time:       " << duration << " ns" << endl;
         cout << "Average:    " << ave_dur << " ns (" << (ave_dur / 1000.0) << " μs)" << endl;
         cout << "SQER:       " << sqer << endl;
@@ -160,30 +162,57 @@ void test_fft() {
 void time_fft() {
     
     fftw::maxthreads = get_max_threads();
-
     size_t align = sizeof(Complex);
   
-    real_data input(_fft_size, align);
-    real_data output(_fft_size, align);
-    imag_data imag(_ifft_size, align);
-  
-    populate(input); 
+    vector<real_data*>  input(_batch);  
+    vector<real_data*>  output(_batch);
+    vector<imag_data*>  imag(_batch);
+    
+    for (int i = 0; i < _batch; ++i) {
+        real_data* in  = new real_data(_fft_size, align);
+        real_data* out = new real_data(_fft_size, align);
+        imag_data* im  = new imag_data(_ifft_size, align);
+        
+        input[i]  = in;
+        output[i] = out;
+        imag[i]   = im;
+    }
 
-    rcfft1d forward(_fft_size, input, imag);
-    crfft1d backward(_fft_size, imag, output);
-
+    rcfft1d forward(_fft_size, *input[0], *imag[0]);
+    crfft1d backward(_fft_size, *imag[0], *output[0]);
+    
     double sqr = 0.0;
-    high_resolution_clock::time_point start = high_resolution_clock::now();
-
+    nanoseconds duration(0);
+    int last_percent = -1;
+    
     for (int i = 0; i < _count; ++i) {
-        forward.fft(input, imag);
-        backward.fftNormalized(imag, output);
-        sqr += sqer(input, output);
+
+        for (int j = 0; j < _batch; ++j) {
+            populate(*input[j]);
+        }
+    
+        high_resolution_clock::time_point start = high_resolution_clock::now();
+    
+        for (int j = 0; j < _batch; ++j) {
+            forward.fft(*input[j], *imag[j]);
+            backward.fftNormalized(*imag[j], *output[j]);
+        }
+        
+        high_resolution_clock::time_point stop = high_resolution_clock::now();
+        duration += duration_cast<nanoseconds>(stop - start);
+        
+        for (int j = 0; j < _batch; ++j) {
+            sqr += sqer(*input[j], *output[j]);
+        }
+        
+        int percent = (int) ((double)i / _count * 100.0);
+        if (percent != last_percent) {
+            std::cout << "\r" << percent << " %";
+            std::cout.flush();   
+        }        
     }
     
-    high_resolution_clock::time_point stop = high_resolution_clock::now();
-    nanoseconds duration = duration_cast<nanoseconds>(stop - start);
-    
+    std::cout << "\r";
     summarize(duration.count(), sqr);    
 }
 
@@ -241,6 +270,8 @@ int main(int ac, char* av[]) {
         cerr << "Unknown error" << endl;
         return 1;
     }
+
+    _count = ceil((double)_count / _batch);
 
     if (_time)
         time_fft();
